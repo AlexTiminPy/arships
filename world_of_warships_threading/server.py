@@ -2,7 +2,6 @@ import multiprocessing
 import threading
 import random
 import json
-import pprint
 import socket
 import sys
 import time
@@ -38,43 +37,55 @@ class Server:
         self.server.bind((self.host, self.port))
         self.server.listen()
 
-        external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
-        external_server.start()
+        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
+        self.external_server.start()
 
-        InternalServer.console(external_server)
+        InternalServer.console(self, self.external_server)
 
-        external_server.join()
+    def restart_server(self):
+        if self.external_server.is_alive():
+            print("killed old process")
+            self.external_server.terminate()
+
+        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
+        self.external_server.start()
+        print("started new process")
 
 
 class InternalServer:
     @staticmethod
-    def console(external_server):
-
-        help_data = (f"<quit>              for close program\n"
-                     f"<childs>            to get processes\n"
-                     f"<close rooms>       to terminate external part of server\n"
-                     f"<current>           to get info about main process\n")
+    def console(server, external_server):
 
         time.sleep(1)
 
-        keyboard.add_hotkey("ctrl+c", lambda: external_server.terminate() and sys.exit())
+        def quit():
+            print("closed")
+            external_server.terminate()
+            sys.exit()
+
+        def help():
+            for key, value in dict.items():
+                print(f"<{key}>,{' ' * (10 - len(key))} {value[1]}")
+            pass
+
+        keyboard.add_hotkey("ctrl+c", quit)
+
+        dict = {
+            "quit": [quit, "for close server"],
+            "childs": [lambda: print(multiprocessing.active_children()), "to get childs process"],
+            "close rooms": [lambda: external_server.terminate(), "ro close all rooms"],
+            "current": [lambda: print(multiprocessing.current_process()), "to get current process"],
+            "help": [help, "for help"],
+            "rooms": [lambda: print(Server.rooms), "to get active rooms"],
+            "restart": [server.restart_server, "restart server"]
+        }
 
         while True:
             data = input("->>")
-            if data == "quit":
-                print("closed")
-                external_server.terminate()
-                sys.exit()
-            elif data == "childs":
-                print(multiprocessing.active_children())
-            elif data == "close rooms":
-                external_server.terminate()
-            elif data == "current":
-                print(multiprocessing.current_process())
-            elif data == "help":
-                print(help_data)
-            else:
-                print(help_data)
+            try:
+                dict[data][0]()
+            except KeyError:
+                help()
 
 
 class ExternalServer:
