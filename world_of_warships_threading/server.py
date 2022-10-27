@@ -55,32 +55,36 @@ class Server:
 class InternalServer:
     @staticmethod
     def console(server, external_server):
-
-        time.sleep(1)
-
         def quit():
             print("closed")
             external_server.terminate()
             sys.exit()
 
         def help():
+            print("help for you:\n")
+
             for key, value in dict.items():
-                print(f"<{key}>,{' ' * (10 - len(key))} {value[1]}")
-            pass
+                print(f"<{key}>,{' ' * (20 - len(key))} {value[1]}")
+
+            print(f"{'-' * 10}\n")
 
         keyboard.add_hotkey("ctrl+c", quit)
-
         dict = {
+            "restart": [server.restart_server, "restart server"],
             "quit": [quit, "for close server"],
+            "help": [help, "for help\n"],
+
             "childs": [lambda: print(multiprocessing.active_children()), "to get childs process"],
-            "close rooms": [lambda: external_server.terminate(), "ro close all rooms"],
-            "current": [lambda: print(multiprocessing.current_process()), "to get current process"],
-            "help": [help, "for help"],
-            "rooms": [lambda: print(Server.rooms), "to get active rooms"],
-            "restart": [server.restart_server, "restart server"]
+            "current": [lambda: print(multiprocessing.current_process()), "to get current process\n"],
+
+            "close rooms": [lambda: external_server.terminate(), "to close all rooms"],
+            "rooms": [lambda: print(Server.rooms), "to get active rooms\n"],
         }
 
+        help()
+
         while True:
+            time.sleep(1)
             data = input("->>")
             try:
                 dict[data][0]()
