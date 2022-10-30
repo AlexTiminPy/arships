@@ -5,7 +5,9 @@ import json
 import socket
 import sys
 import time
-import keyboard
+
+
+# import keyboard
 
 
 class Player:
@@ -37,6 +39,15 @@ class Server:
         self.server.bind((self.host, self.port))
         self.server.listen()
 
+        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
+        self.external_server.start()
+
+        self.internal_server = InternalServer()
+        self.internal_server.console(self)
+
+
+class InternalServer:
+    def __init__(self):
         self.command_dict = {
             "help": [
                 self.help,
@@ -52,50 +63,40 @@ class Server:
             ]
         }
 
-        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
-        self.external_server.start()
+    def console(self, server):
+        # keyboard.add_hotkey("ctrl+c", server.command_dict["quit"][0])
 
-        InternalServer.console(self)
+        self.command_dict["help"][0](server)
 
-    def restart_server(self):
-        if self.external_server.is_alive():
+        while True:
+            time.sleep(1)
+            data = input("->>")
+            try:
+                self.command_dict[data][0](server)
+            except KeyError:
+                self.command_dict["help"][0](server)
+
+    def restart_server(self, server):
+        if server.external_server.is_alive():
             print("killed old process")
-            self.external_server.terminate()
+            server.external_server.terminate()
 
-        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
-        self.external_server.start()
+        server.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(server,))
+        server.external_server.start()
         print("started new process")
 
-    def quit(self):
+    def quit(self, server):
         print("closed")
-        self.external_server.terminate()
+        server.external_server.terminate()
         sys.exit()
 
-    def help(self):
+    def help(self, server):
         print("help for you:\n")
 
         for key, value in self.command_dict.items():
             print(f"<{key}>,{' ' * (20 - len(key))} {value[1]}")
 
         print(f"{'-' * 10}\n")
-
-
-class InternalServer:
-    @staticmethod
-    def console(server):
-        keyboard.add_hotkey("ctrl+c", server.command_dict["quit"][0])
-
-        server.command_dict["help"][0]()
-
-        while True:
-            time.sleep(1)
-            data = input("->>")
-            try:
-                server.command_dict[data][0]()
-            except KeyError:
-                server.command_dict["help"][0]()
-
-
 
 
 class ExternalServer:
