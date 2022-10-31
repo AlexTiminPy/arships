@@ -11,7 +11,7 @@ import time
 
 
 class Player:
-    def __init__(self, name: str, field: list[list[int: 10]], killed_cells: int):
+    def __init__(self, name: str, killed_cells: int = 0, field: list[list[int: 10]] = None):
         self.name = name
         self.field = field
         self.killed_cells = killed_cells
@@ -39,15 +39,17 @@ class Server:
         self.server.bind((self.host, self.port))
         self.server.listen()
 
-        self.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(self,))
-        self.external_server.start()
+        self.external_server = ExternalServer(self)
+        self.external_server_process = multiprocessing.Process(target=self.external_server.accept_players)
+        self.external_server_process.start()
 
-        self.internal_server = InternalServer()
-        self.internal_server.console(self)
+        self.internal_server = InternalServer(self)
+        self.internal_server.console()
 
 
 class InternalServer:
-    def __init__(self):
+    def __init__(self, parent_server):
+        self.parent_server = parent_server
         self.command_dict = {
             "help": [
                 self.help,
@@ -73,44 +75,46 @@ class InternalServer:
 
         }
 
-    def console(self, server):
+    def console(self):
         # keyboard.add_hotkey("ctrl+c", server.command_dict["close_full_server"][0])
 
-        self.command_dict["help"][0](server)
+        self.command_dict["help"][0]()
 
         while True:
             time.sleep(1)
             data = input("->>")
             try:
-                self.command_dict[data][0](server)
+                self.command_dict[data][0]()
             except KeyError:
-                self.command_dict["help"][0](server)
+                self.command_dict["help"][0]()
 
-    def start_internal_server(self, server):
-        if server.external_server.is_alive():
+    def start_internal_server(self):
+        if self.parent_server.external_server_process.is_alive():
             print("already started")
             return
-        server.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(server,))
-        server.external_server.start()
 
-    def restart_server(self, server):
-        self.close_external_server(server)
+        self.parent_server.external_server = ExternalServer(self)
+        self.parent_server.external_server_process = \
+            multiprocessing.Process(target=self.parent_server.external_server.accept_players)
+        self.parent_server.external_server_process.start()
 
-        server.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(server,))
-        server.external_server.start()
         print("started new process")
 
-    def close_external_server(self, server):
-        if server.external_server.is_alive():
+    def close_external_server(self):
+        if self.parent_server.external_server_process.is_alive():
             print("killed old process")
-            server.external_server.terminate()
+            self.parent_server.external_server_process.terminate()
 
-    def close_full_server(self, server):
+    def restart_server(self):
+        self.close_external_server()
+        self.start_internal_server()
+
+    def close_full_server(self):
         print("closed")
-        server.external_server.terminate()
+        self.parent_server.external_server_process.terminate()
         sys.exit()
 
-    def help(self, server):
+    def help(self):
         print("help for you:\n")
 
         for key, value in self.command_dict.items():
@@ -121,37 +125,36 @@ class InternalServer:
 
 class ExternalServer:
 
-    @staticmethod
-    def accept_players(server):
+    def __init__(self, parent_server):
+        self.parent_server = parent_server
+
+    def accept_players(self):
         while True:
             print(f"wait new user...")
             sock, addr = server.server.accept()
             print(f"connected {addr}")
-            ExternalServer.link_new_player_with_room(sock, addr)
+            self.link_new_player_with_room(sock, addr)
 
-    @staticmethod
-    def link_new_player_with_room(sock, addr):
-        player, start_data = ExternalServer.wait_data_from_player(sock)
+    def link_new_player_with_room(self, sock, addr):
+        player, start_data = self.wait_data_from_player(sock)
         print(f"get data from {addr}")
-        ExternalServer.target_game_mode(sock, addr, player, start_data)
+        self.target_game_mode(sock, addr, player, start_data)
 
-    @staticmethod
-    def wait_data_from_player(sock):
+    def wait_data_from_player(self, sock):
         sock.send(json.dumps(Server.free_players))  # sending free players to join rooms
         start_data = json.loads(sock.recv(2048))  # wait initial data for player
-        player = Player(name=start_data["name"], field=start_data["field"], killed_cells=0)
+        player = Player(name=start_data["name"])
 
         return player, start_data
 
-    @staticmethod
-    def target_game_mode(sock, addr, player, start_data):
+    def target_game_mode(self, sock, addr, player, start_data):
         if start_data["game_mode"] == "name":
-            room = ExternalServer.create_room_with_name_player(sock, addr, player, start_data)
-            ExternalServer.create_new_thread(room)
+            room = self.create_room_with_name_player(sock, addr, player, start_data)
+            self.create_new_thread(room)
 
         elif start_data["game_mode"] == "random":
-            room = ExternalServer.create_room_with_random_player(sock, addr, player, start_data)
-            ExternalServer.create_new_thread(room)
+            room = self.create_room_with_random_player(sock, addr, player, start_data)
+            self.create_new_thread(room)
 
         elif start_data["game_mode"] == "new":
             server.free_players.append(player)
@@ -160,8 +163,7 @@ class ExternalServer:
             print(f"some problem with {start_data['name']}: {addr} |can`t find command for game mode|")
             sock.send(json.dumps("error with init data: |game mode instruction|"))
 
-    @staticmethod
-    def create_room_with_name_player(sock, addr, player, start_data):
+    def create_room_with_name_player(self, sock, addr, player, start_data):
         try:
             room = Room(player,
                         list(filter(lambda x: x.name == start_data["name_of_enemy"], server.free_players))[0],
@@ -172,8 +174,7 @@ class ExternalServer:
         else:
             return room
 
-    @staticmethod
-    def create_room_with_random_player(sock, addr, player, start_data):
+    def create_room_with_random_player(self, sock, addr, player, start_data):
         try:
             room = Room(player, random.choice(server.free_players), threading.get_ident())
         except IndexError:
@@ -182,8 +183,7 @@ class ExternalServer:
         else:
             return room
 
-    @staticmethod
-    def create_new_thread(ready_room: Room):
+    def create_new_thread(self, ready_room: Room):
         Server.rooms.append(ready_room)
         new_thread = threading.Thread(target=ready_room.run)
         print(f"created new room {ready_room.id}")
