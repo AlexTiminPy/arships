@@ -53,18 +53,28 @@ class InternalServer:
                 self.help,
                 "for help"
             ],
+            "quit": [
+                self.close_full_server,
+                "for close server\n"
+            ],
+
             "restart": [
                 self.restart_server,
-                "restart server"
+                "restart internal server"
             ],
-            "quit": [
-                self.quit,
-                "for close server\n"
-            ]
+            "start": [
+                self.start_internal_server,
+                "start internal server"
+            ],
+            "stop": [
+                self.close_external_server,
+                "stop internal server\n"
+            ],
+
         }
 
     def console(self, server):
-        # keyboard.add_hotkey("ctrl+c", server.command_dict["quit"][0])
+        # keyboard.add_hotkey("ctrl+c", server.command_dict["close_full_server"][0])
 
         self.command_dict["help"][0](server)
 
@@ -76,16 +86,26 @@ class InternalServer:
             except KeyError:
                 self.command_dict["help"][0](server)
 
-    def restart_server(self, server):
+    def start_internal_server(self, server):
         if server.external_server.is_alive():
-            print("killed old process")
-            server.external_server.terminate()
+            print("already started")
+            return
+        server.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(server,))
+        server.external_server.start()
+
+    def restart_server(self, server):
+        self.close_external_server(server)
 
         server.external_server = multiprocessing.Process(target=ExternalServer.accept_players, args=(server,))
         server.external_server.start()
         print("started new process")
 
-    def quit(self, server):
+    def close_external_server(self, server):
+        if server.external_server.is_alive():
+            print("killed old process")
+            server.external_server.terminate()
+
+    def close_full_server(self, server):
         print("closed")
         server.external_server.terminate()
         sys.exit()
@@ -110,13 +130,13 @@ class ExternalServer:
             ExternalServer.link_new_player_with_room(sock, addr)
 
     @staticmethod
-    async def link_new_player_with_room(sock, addr):
-        player, start_data = await ExternalServer.wait_data_from_player(sock)
+    def link_new_player_with_room(sock, addr):
+        player, start_data = ExternalServer.wait_data_from_player(sock)
         print(f"get data from {addr}")
         ExternalServer.target_game_mode(sock, addr, player, start_data)
 
     @staticmethod
-    async def wait_data_from_player(sock):
+    def wait_data_from_player(sock):
         sock.send(json.dumps(Server.free_players))  # sending free players to join rooms
         start_data = json.loads(sock.recv(2048))  # wait initial data for player
         player = Player(name=start_data["name"], field=start_data["field"], killed_cells=0)
