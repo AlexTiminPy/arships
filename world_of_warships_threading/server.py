@@ -30,7 +30,6 @@ class Room:
 class Server:
     free_players = []
     threads = []
-    rooms = []
 
     def __init__(self):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -72,8 +71,22 @@ class InternalServer:
                 self.close_external_server,
                 "stop internal server\n"
             ],
+            "rooms": [
+                self.print_rooms,
+                "print all rooms"
+            ],
+            "rooms tr": [
+                self.print_rooms_threads,
+                "print all rooms threads"
+            ],
 
         }
+
+    def print_rooms(self):
+        print(self.parent_server.external_server.rooms)
+
+    def print_rooms_threads(self):
+        print(self.parent_server.external_server.rooms_threads)
 
     def console(self):
         # keyboard.add_hotkey("ctrl+c", server.command_dict["close_full_server"][0])
@@ -93,7 +106,7 @@ class InternalServer:
             print("already started")
             return
 
-        self.parent_server.external_server = ExternalServer(self)
+        self.parent_server.external_server = ExternalServer(self.parent_server)
         self.parent_server.external_server_process = \
             multiprocessing.Process(target=self.parent_server.external_server.accept_players)
         self.parent_server.external_server_process.start()
@@ -127,13 +140,16 @@ class ExternalServer:
 
     def __init__(self, parent_server):
         self.parent_server = parent_server
+        self.rooms = []
+        self.rooms_threads = []
 
     def accept_players(self):
         while True:
             print(f"wait new user...")
-            sock, addr = server.server.accept()
+            sock, addr = self.parent_server.server.accept()
             print(f"connected {addr}")
-            self.link_new_player_with_room(sock, addr)
+            threading.Thread(target=self.link_new_player_with_room, args=(sock, addr))
+            # self.link_new_player_with_room(sock, addr)
 
     def link_new_player_with_room(self, sock, addr):
         player, start_data = self.wait_data_from_player(sock)
@@ -141,8 +157,9 @@ class ExternalServer:
         self.target_game_mode(sock, addr, player, start_data)
 
     def wait_data_from_player(self, sock):
+        print(sock.recv(2048).decode("utf-8"))
         sock.send(json.dumps(Server.free_players))  # sending free players to join rooms
-        start_data = json.loads(sock.recv(2048))  # wait initial data for player
+        start_data = json.loads(sock.recv(2048))    # wait initial data for player
         player = Player(name=start_data["name"])
 
         return player, start_data
@@ -184,11 +201,11 @@ class ExternalServer:
             return room
 
     def create_new_thread(self, ready_room: Room):
-        Server.rooms.append(ready_room)
+        self.rooms.append(ready_room)
         new_thread = threading.Thread(target=ready_room.run)
+        self.rooms_threads.append(new_thread)
         print(f"created new room {ready_room.id}")
         new_thread.start()
-        new_thread.join()
 
 
 if __name__ == "__main__":
